@@ -1,0 +1,303 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+#matplotlib.style.use('ggplot')
+
+import seaborn as sns
+
+#Sets directory to pull in all of data from
+directory = "I:\My Documents\Data Science\Monetate\Data Files"
+os.chdir(directory)
+
+# Pulls in data for analysis as .xlsx
+file_descriptions = pd.ExcelFile('file_descriptions.xlsx')
+purchase_descriptions=file_descriptions.parse(0)
+techno_geo_descriptions=file_descriptions.parse(1)
+sessions_descriptions=file_descriptions.parse(2)
+
+
+# Pulls in all data for analysis as .csv
+purchase_lines_000 = pd.read_csv('purchase_lines_000', header = None, names=purchase_descriptions.FIELD)
+sessions_000 = pd.read_csv('sessions_000', header=None, names=sessions_descriptions.FIELD)
+techno_geo_000 = pd.read_csv('techno_geo_000', header=None, names=techno_geo_descriptions.FIELD)
+
+#All data in exercise is for account_id 569
+
+#Data Cleanup Section
+
+#has_stealth column is all equal to f so can be dropped
+(sessions_000.has_stealth == 't').sum()
+sessions_000 = sessions_000.drop('has_stealth', axis=1)
+
+#mid_epoch column is all equal to 2 so can be dropped
+sessions_000 = sessions_000.drop('mid_epoch', axis=1)
+
+#creates line price feature in purchase_lines_000
+purchase_lines_000['line_price'] = purchase_lines_000.quantity * purchase_lines_000.unit_price
+
+#convert dates to datetimes for manipulation later
+sessions_000['start_time'] = pd.to_datetime(sessions_000['start_time'])
+sessions_000['end_time'] = pd.to_datetime(sessions_000['end_time'])
+sessions_000['start_date'] = pd.to_datetime(sessions_000['start_date'])
+techno_geo_000['start_time'] = pd.to_datetime(techno_geo_000['start_time'])
+purchase_lines_000['start_time'] = pd.to_datetime(purchase_lines_000['start_time'])
+purchase_lines_000['fact_time'] = pd.to_datetime(purchase_lines_000['fact_time'])
+
+#creates new start_date feature for purchase_lines_000
+purchase_lines_000['start_date'] = purchase_lines_000.start_time.dt.date
+
+#creates new hour feature for sessions dataframe
+sessions_000['end_time_hour'] =  pd.DatetimeIndex(sessions_000.end_time).hour
+sessions_000.end_time_hour = pd.to_numeric(sessions_000.end_time_hour, downcast='integer')
+
+#creates new day of week feature for sessions dataframe using a dictionary and map
+days={0:"Monday",1:"Tuesday",2:"Wednesday",3:"Thursday",4:"Friday",5:"Saturday",6:"Sunday"}
+sessions_000['day_of_week']= sessions_000.end_time.dt.dayofweek.map(days)
+
+#converts day_of_week to category
+sessions_000.day_of_week = pd.Categorical(sessions_000.day_of_week,days.values())
+
+#find total number of sessions
+numsessions = len(sessions_000)
+
+#calculate metrics
+bounce_rate = (sessions_000.page_views[sessions_000.page_views == 1].count()/numsessions) * 100
+print('Bounce Rate: ', bounce_rate, '%')
+
+conversion_rate = (sessions_000.page_views[sessions_000.has_purchase == 't'].count()/numsessions) * 100
+print('Conversion Rate: ', conversion_rate, '%')
+
+cart_rate = (sessions_000.has_cart[sessions_000.has_cart == 't'].count()/numsessions) * 100
+print('Cart Rate: ', cart_rate, '%')
+
+abandonment_rate = (sessions_000.has_cart[(sessions_000.has_cart == 't') & (sessions_000.has_purchase == 'f')].count()/numsessions) * 100
+print('Abandonment Rate: ', abandonment_rate, '%')
+
+ordertotals = pd.DataFrame(purchase_lines_000.groupby('purchase_id')['line_price'].sum())
+average_order_value = ordertotals.values.mean().round(2)
+print('Average Order Value: $', average_order_value)
+
+#metrics for bounce rate
+#There are no visitors with 1 page view and a purchase
+bounce_sessions = sessions_000[(sessions_000.page_views == 1) & (sessions_000.has_purchase == 't')]
+
+#find all sessions where a user had 1 page view
+bounce_sessions = sessions_000[(sessions_000.page_views == 1)][['mid_rnd','mid_ts','start_time']]
+
+#get device info and location for users who left with 1 pageview
+geo_bounce = pd.merge(techno_geo_000, bounce_sessions, on = ['mid_rnd', 'mid_ts', 'start_time'])
+
+#create big frame in back
+a1 = plt.subplot(1,1,1, frameon=False)
+# hide tick and tick label of the big axes
+plt.tick_params(labelcolor='none', top='off', bottom='off', left='off', right='off')
+
+a2 = plt.subplot(1,2,1)
+#get value counts for country categories and % frequency
+country_bounce = pd.DataFrame(geo_bounce.country_code.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'country_code':'percent' , 'index':'country_code'})
+
+#show bar plot of results
+sns.barplot(x = 'country_code', y = 'percent', data = country_bounce) \
+    .set(xlabel='Country',ylabel='% Distribution')
+plt.xticks(rotation=90)
+
+#create figure for subplot
+a3 = plt.subplot(1,2,2,sharey=a2)
+#analysis for country code
+#get value counts for country categories and % frequency on all sessions
+country_all = pd.DataFrame(techno_geo_000.country_code.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'country_code':'percent' , 'index':'country_code'})
+
+#show bar plot of results
+sns.barplot(x = 'country_code', y = 'percent', data = country_all) \
+    .set(xlabel='Country',ylabel='', )
+plt.xticks(rotation=90)
+plt.suptitle('Country Distribution w/ Bounce vs. Total Country Distribution')
+plt.show()
+
+#create big frame in back
+a1 = plt.subplot(1,1,1, frameon=False)
+# hide tick and tick label of the big axes
+plt.tick_params(labelcolor='none', top='off', bottom='off', left='off', right='off')
+
+a2 = plt.subplot(1,2,1)
+#device type
+#get value counts for device categories and % frequency
+device_bounce = pd.DataFrame(geo_bounce.device_type.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'device_type':'percent' , 'index':'device_type'})
+
+#show bar plot of results
+sns.barplot(x = 'device_type', y = 'percent', data = device_bounce) \
+    .set(xlabel='Device',ylabel='% Distribution')
+plt.xticks(rotation=90)
+
+a3 = plt.subplot(1,2,2,sharey=a2)
+#get value counts for device categories and % frequency on all sessions
+device_all = pd.DataFrame(techno_geo_000.device_type.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'device_type':'percent' , 'index':'device_type'})
+
+#show bar plot of results
+sns.barplot(x = 'device_type', y = 'percent', data = device_all) \
+    .set(xlabel='Device',ylabel='')
+plt.xticks(rotation=90)
+plt.suptitle('Device Distribution w/ Bounce vs. Total Device Distribution')
+plt.show()
+
+#create big frame in back
+a1 = plt.subplot(1,1,1, frameon=False)
+# hide tick and tick label of the big axes
+plt.tick_params(labelcolor='none', top='off', bottom='off', left='off', right='off')
+
+#create figure for subplot
+a2 = plt.subplot(1,2,1)
+#get value counts for country categories and % frequency
+os_bounce = pd.DataFrame(geo_bounce.os.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'os':'percent' , 'index':'os'})
+
+#show bar plot of results
+sns.barplot(x = 'os', y = 'percent', data = os_bounce) \
+    .set(xlabel='OS',ylabel='% Distribution')
+plt.xticks(rotation=90)
+
+#create figure for subplot
+a3 = plt.subplot(1,2,2, sharey=a2)
+#analysis for country code
+#get value counts for country categories and % frequency on all sessions
+os_all = pd.DataFrame(techno_geo_000.os.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'os':'percent' , 'index':'os'})
+
+#show bar plot of results
+sns.barplot(x = 'os', y = 'percent', data = os_all) \
+    .set(xlabel='OS',ylabel='')
+plt.xticks(rotation=90)
+plt.suptitle('OS Distribution w/ Bounce vs. Total Device Distribution')
+plt.show()
+
+#create big frame in back
+a1 = plt.subplot(1,1,1, frameon=False)
+# hide tick and tick label of the big axes
+plt.tick_params(labelcolor='none', top='off', bottom='off', left='off', right='off')
+
+#create figure for subplot
+a2 = plt.subplot(1,2,1)
+#get value counts for country categories and % frequency
+browser_bounce = pd.DataFrame(geo_bounce.browser.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'browser':'percent' , 'index':'browser'})
+
+#show bar plot of results
+sns.barplot(x = 'browser', y = 'percent', data = browser_bounce) \
+    .set(xlabel='Browser',ylabel='% Distribution')
+plt.xticks(rotation=90)
+
+#create figure for subplot
+a3 = plt.subplot(1,2,2, sharey=a2)
+#analysis for country code
+#get value counts for country categories and % frequency on all sessions
+browser_all = pd.DataFrame(techno_geo_000.browser.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'browser':'percent' , 'index':'browser'})
+
+#show bar plot of results
+sns.barplot(x = 'browser', y = 'percent', data = browser_all) \
+    .set(xlabel='Browser',ylabel='')
+plt.xticks(rotation=90)
+plt.suptitle('Browser Distribution w/ Bounce vs. Total Device Distribution')
+plt.show()
+
+
+#find all sessions where a user had a purchase
+purchase_sessions = sessions_000[(sessions_000.has_purchase == 't')]
+
+#create new purchase time hour count
+purchase_hours = pd.DataFrame(purchase_sessions.end_time_hour.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'end_time_hour':'percent' , 'index':'end_time_hour'})
+
+#show bar plot of results
+sns.barplot(x = 'end_time_hour', y = 'percent', data = purchase_hours) \
+    .set(xlabel = 'Hour of Day', ylabel = '% Distribution')
+plt.title('% Distribution of Purchases Throughout Day')
+plt.show()
+
+#create new purchase quarter feature
+#purchase_sessions['quarter'] =  pd.DatetimeIndex(purchase_sessions.end_time).month
+##Realized this is useless since all datat is from may
+
+#create new purchase day of week count and sorts on day of week
+purchase_day_of_week = pd.DataFrame(purchase_sessions.day_of_week.value_counts(normalize=True)) \
+    .reset_index() \
+    .rename(columns={'day_of_week':'percent' , 'index':'day_of_week'}) \
+    .sort('day_of_week')
+
+#show bar plot of results
+sns.barplot(x = 'day_of_week', y = 'percent', data = purchase_day_of_week) \
+    .set(xlabel = 'Day of Week', ylabel = '% Distribution')
+plt.title('% Distribution of Purchases Throughout Week')
+plt.show()
+
+#calculates per day stats
+purch_per_day = pd.DataFrame(sessions_000[sessions_000['has_purchase'] == 't'].groupby('start_date')['has_purchase'].count()) \
+        .rename(columns = {'has_purchase':'num_purchase'})
+sessions_per_day = pd.DataFrame(sessions_000.groupby('start_date')['has_purchase'].count()) \
+    .rename(columns = {'has_purchase':'num_session'})
+bounce_per_day = pd.DataFrame(sessions_000[sessions_000['page_views'] == 1].groupby('start_date')['has_purchase'].count()) \
+    .rename(columns = {'has_purchase':'num_bounce'})
+sales_per_day = pd.DataFrame(purchase_lines_000.groupby('start_date')['line_price'].sum()) \
+    .rename(columns = {'line_price':'sales'})
+
+
+#merges per day stat dataframes together
+mergedf = [purch_per_day, sessions_per_day, bounce_per_day, sales_per_day]
+per_day_stats = pd.concat(mergedf, axis= 1)
+
+#calculates additional stats on per_day_stats
+per_day_stats['bounce_rate'] = per_day_stats.num_bounce / per_day_stats.num_session
+
+#Code to plot the bounce_rate and # of sessions
+fig, ax1 = plt.subplots()
+
+ax2 = ax1.twinx()
+ax1.plot(per_day_stats.bounce_rate, 'g-')
+ax2.plot(per_day_stats.num_session, 'b-')
+
+ax1.set_xlabel('Date')
+ax1.set_ylabel('Bounce Rate (%)', color='g')
+ax2.set_ylabel('# of Sessions', color='b')
+plt.title('Bounce Rate vs. # of Sessions Over Month')
+plt.show()
+
+#Code to plot the bounce_rate and # of purchases
+fig, ax1 = plt.subplots()
+
+ax2 = ax1.twinx()
+ax1.plot(per_day_stats.bounce_rate, 'g-')
+ax2.plot(per_day_stats.num_purchase, 'b-')
+
+ax1.set_xlabel('Date')
+ax1.set_ylabel('Bounce Rate (%)', color='g')
+ax2.set_ylabel('# of Purchases', color='b')
+plt.title('Bounce Rate vs. # of Purchases Over Month')
+plt.show()
+
+#Code to plot the bounce_rate and Sales ($)
+fig, ax1 = plt.subplots()
+
+ax2 = ax1.twinx()
+ax1.plot(per_day_stats.bounce_rate, 'g-')
+ax2.plot(per_day_stats.sales, 'b-')
+
+ax1.set_xlabel('Date')
+ax1.set_ylabel('Bounce Rate (%)', color='g')
+ax2.set_ylabel('Sales ($)', color='b')
+plt.title('Bounce Rate vs. Sales (%)')
+plt.show()
