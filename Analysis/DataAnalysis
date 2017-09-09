@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 #Sets directory to pull in all of data from
-directory = "I:\My Documents\Data Science\Monetate\Data Files"
+directory = "I:\My Documents\Data Science\ECommerceDataAnalyst\Data Files"
 os.chdir(directory)
 
 # Pulls in data for analysis as .xlsx
